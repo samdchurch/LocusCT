@@ -1,0 +1,26 @@
+torch>=2.1.0
+torchvision>=0.16.0
+transformers>=4.51.0
+tokenizers>=0.21.0
+nibabel>=5.1.0
+pyyaml>=6.0
+numpy>=1.24.0
+scipy>=1.11.0
+tqdm>=4.66.0
+wandb>=0.16.0
+matplotlib>=3.8.0
+pytest>=7.4.0
+
+# For finetune_voxtell.py / evaluate_voxtell_*.py -- pulls in nnunetv2, acvl-utils,
+# dynamic-network-architectures, SimpleITK, positional-encodings, einops as transitive
+# deps. Upper-bounded (<0.2) since it's a young (0.1.x) package with hardcoded internal
+# import paths (voxtell.model.voxtell_model, voxtell.inference.predictor) that a later
+# minor version could restructure without notice.
+voxtell>=0.1.0,<0.2
+
+# For scripts/embedding/precompute_merlin_image_embeddings.py -- pulls in monai,
+# huggingface_hub, nltk, rich, einops, peft as transitive deps. Not to be confused
+# with the Merlin Abdominal CT Dataset already referenced elsewhere in this repo
+# (predict_merlin.py etc.) -- this is the pretrained CT foundation model
+# (github.com/StanfordMIMI/Merlin).
+merlin-vlm>=0.0.7,<0.1

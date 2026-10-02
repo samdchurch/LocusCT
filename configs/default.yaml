@@ -1,0 +1,91 @@
+seed: 42  # fixes weight init and data shuffling order for reproducible, comparable runs
+
+data:
+  train_manifest:   "official_splits/all_data_train.json"
+  val_manifest:   "official_splits/curated_ed_onc_val_data.json"
+  ed_val_manifest:  "official_splits/curated_ed_val_data.json"   # for Trainer.macro_hit_rate_epoch's ED/ONC breakdown (see training/trainer.py)
+  onc_val_manifest: "official_splits/curated_onc_val_data.json"  # -- unset (or remove) to disable Macro Hit Rate reporting
+  test_manifest:  "official_splits/all_test_data.json"
+  image_dir:      "/path/to/data/inhouse_abdominal_ct/nifti_resampled"   # base dir prepended to manifest image paths
+  mask_dir:       "/path/to/data/inhouse_abdominal_ct/labels_resampled"  # base dir prepended to manifest mask paths
+  embedding_cache: "/path/to/data/embeddings_mmap"  # path to memmap cache directory (on scratch -- raw hidden-state caches are large, home dir quota is too small); leave empty for live encoding
+  spatial_mode:   "fixed"          # "fixed" | "resize"
+  spatial_size:   [352, 352, 192]  # for resize mode; fixed mode pads depth to nearest mult of 16
+  max_text_len:   256
+  hu_min:         -1000.0
+  hu_max:         1000.0
+  multi_window:   true            # if true, use 3-channel windowing (lung/soft-tissue/bone) instead of single hu_min/hu_max
+  num_workers:    4
+  prefetch_factor: 4              # batches each worker reads ahead; higher hides more I/O latency behind compute at the cost of more host RAM
+  pin_memory:     true
+  max_samples:    null            # if set, truncate each split's dataset to this many samples (for quick test runs)
+  group_by_image: false           # train split only: sample one image, run the encoder once, and train on all its (phrase,mask) findings together. Paused for now (back to per-triplet random sampling) -- revisit later.
+  max_findings_per_image: null    # group_by_image only: if an image has more findings than this, use a random subset of that many instead of all of them (caps per-step decoder batch size/memory); null = no cap
+  merlin:                         # only consulted when model.encoder_type=="merlin" (see data/merlin_dataset.py); each key falls back to the plain-UNet key of the same name above when unset, so the common single-dataset case stays config-light
+    image_dir:       ""           # native (pre-resample) NIfTI dir -- Merlin does its own RAS/1.5x1.5x3mm resampling, so this should NOT be image_dir above (nifti_resampled/) -- see submission_scripts/embedding/submit_precompute_merlin_image_embeddings.sh's own image_dir override for the same reasoning
+    mask_dir:         ""
+    embedding_cache:  ""
+
+model:
+  text_encoder_name: "Qwen/Qwen3-Embedding-8B"
+  text_proj_dim:     256           # output dim of each cross-attention stage's own text projection (input dim is the text encoder's raw hidden size, auto-detected)
+  freeze_language_projectors: true # freeze each stage's text_proj by default; set false to train it. Pairs with train.py's --init_text_proj, which warm-starts text_proj from a prior run
+  freeze_text_encoder: true
+  finetune_last_n_layers: 0        # >0 to unfreeze top-N transformer layers
+  unet_base_channels: 16
+  unet_channel_mult:  [1, 2, 4, 8, 16]
+  num_heads:          8
+  target_q_tokens:    2048
+  dropout:            0.1
+  fusion_type:        "gated_cross_attention"  # "cross_attention" | "encoder_cross_attention" | "voxtell" | "gated_cross_attention"
+  voxtell:
+    guidance_dim:            32   # G -- number of learned query slots / dot-product output channels per stage
+    prompt_decoder_dim:      256  # internal transformer hidden dim
+    prompt_decoder_layers:   6
+    prompt_decoder_heads:    8
+  encoder_type:       "unet"      # "unet" | "merlin" -- swaps UNet3D's own encoder for a frozen pretrained Merlin I3ResNet152 backbone; decoder (bottleneck, dec4..dec1, all fusion modules) unchanged either way. See models/merlin_encoder.py.
+  merlin:                         # only consulted when encoder_type=="merlin"
+    model_dir:                      ""    # dir containing Merlin's staged checkpoint (bind-mounted onto merlin's in-package checkpoints/ dir -- see scripts/embedding/precompute_merlin_image_embeddings.py's own staging step)
+    clinical_longformer_dir:        ""    # local save_pretrained() copy of yikuan8/Clinical-Longformer (staged ahead of time -- this cluster has no internet access)
+    freeze_merlin_encoder:          true  # mirrors model.freeze_text_encoder
+    finetune_last_n_merlin_stages:  0     # 0..4; N unfreezes the last N of [layer4,layer3,layer2,layer1] (stage-level, not block-level -- see MerlinEncoder._unfreeze_last_n_stages)
+
+training:
+  batch_size:             1
+  num_epochs:             100     # upper bound / cosine LR schedule horizon -- early_stop_patience below can end training sooner
+  early_stop_patience:    4       # stop once macro_hit_rate hasn't improved for this many epochs; null/0 disables (needs data.ed_val_manifest/onc_val_manifest set, else always a no-op)
+  use_amp:                true
+  compile:                false  # requires gcc in container; re-enable after rebuilding .sif with gcc
+  gradient_checkpointing: false  # disabled for throughput; re-enable (true) if this OOMs at the current batch_size/GPU
+  grad_clip_norm:         1.0
+  checkpoint_every_n_steps: null  # if set, also save a rolling mid-epoch checkpoint every N steps (resumable without re-consuming already-seen samples); null disables
+
+optimizer:
+  name:          "adamw"
+  lr:            2.0e-4
+  weight_decay:  1.0e-5
+  text_lr_scale: 0.01
+  merlin_lr_scale: 0.01  # mirrors text_lr_scale -- only matters when model.merlin.finetune_last_n_merlin_stages > 0
+
+scheduler:
+  name:           "linear_warmup_cosine"
+  warmup_epochs:  10
+
+loss:
+  # dice_weight ramps linearly from _start to _end over scheduler.warmup_epochs,
+  # then holds at _end; bce_weight is always its complement (weights sum to 1).
+  dice_weight_start: 0.5
+  dice_weight_end:   0.5  # == _start, so effectively held constant (no ramp)
+  bce_pos_weight:    10.0
+
+inference:
+  threshold: 0.5
+
+logging:
+  use_wandb:         false
+  project:           "grounder"
+  log_every_n_steps: 50
+
+checkpoint:
+  output_dir:          "runs/default"
+  keep_last_n:         1     # only the most recent epoch checkpoint is kept alongside best.pt; null/0 = keep every epoch checkpoint, no pruning

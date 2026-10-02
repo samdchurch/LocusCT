@@ -1,0 +1,36 @@
+{
+    "dataset_name": "VoxTellDataset",
+    "image_reader_writer": "NibabelIOWithReorient",
+    "_description": "Hand-authored (NOT nnU-Net-planner-generated) 'much bigger' variant of voxtell_scratch_96/plans.json: same 96^3 patch size and stage/stride schedule (an extra non-downsampling stage after the stem, same as voxtell_scratch_96), but features_per_stage widened from [32,64,128,256,320,320] to [64,128,256,512,512,512] (nnU-Net-L's 320 channel cap raised to 512) and n_blocks_per_stage scaled up further from [1,2,6,8,10,10] to [2,4,10,14,18,18]. Widening features_per_stage means this config's real per-stage (channels, shape) pairs no longer match VoxTellModel.DECODER_CONFIGS' hardcoded table (an external-package class attribute, not derived from arch_kwargs) at any index -- decoder_configs.json (sibling file, this same directory) is a full REPLACEMENT table matching this architecture instead, monkey-patched onto VoxTellModel by build_voxtell_model when it finds this file present. decoder_layer=4/num_maskformer_stages=5 select into that replacement table, not the original -- see decoder_configs.json's own values. This config also expects --text-embedding-dim 4096 (Qwen3-Embedding-8B's hidden_size) rather than voxtell_scratch_96's 2560 (Qwen3-Embedding-4B) -- unrelated to arch_kwargs/DECODER_CONFIGS, passed as its own finetune_voxtell.py flag.",
+    "configurations": {
+        "3d_fullres": {
+            "data_identifier": "nnUNetResEncUNetXLPlans_noResampling_3d_fullres_96_deep",
+            "preprocessor_name": "DefaultPreprocessor",
+            "batch_size": 2,
+            "patch_size": [96, 96, 96],
+            "normalization_schemes": ["ZScoreNormalization"],
+            "architecture": {
+                "network_class_name": "dynamic_network_architectures.architectures.unet.ResidualEncoderUNet",
+                "arch_kwargs": {
+                    "n_stages": 6,
+                    "features_per_stage": [64, 128, 256, 512, 512, 512],
+                    "conv_op": "torch.nn.modules.conv.Conv3d",
+                    "kernel_sizes": [[3,3,3],[3,3,3],[3,3,3],[3,3,3],[3,3,3],[3,3,3]],
+                    "strides": [[1,1,1],[1,1,1],[2,2,2],[2,2,2],[2,2,2],[2,2,2]],
+                    "n_blocks_per_stage": [2, 4, 10, 14, 18, 18],
+                    "n_conv_per_stage_decoder": [1, 1, 1, 1, 1],
+                    "conv_bias": true,
+                    "norm_op": "torch.nn.modules.instancenorm.InstanceNorm3d",
+                    "norm_op_kwargs": {"eps": 1e-05, "affine": true},
+                    "dropout_op": null,
+                    "dropout_op_kwargs": null,
+                    "nonlin": "torch.nn.LeakyReLU",
+                    "nonlin_kwargs": {"inplace": true}
+                },
+                "_kw_requires_import": ["conv_op", "norm_op", "dropout_op", "nonlin"]
+            },
+            "batch_dice": false
+        }
+    },
+    "experiment_planner_used": "hand-authored, not nnU-Net-generated -- see _description"
+}

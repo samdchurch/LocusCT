@@ -1,0 +1,17 @@
+Bootstrap: docker
+From: pytorch/pytorch:2.6.0-cuda12.6-cudnn9-runtime
+
+%files
+    requirements.txt /opt/requirements.txt
+
+%environment
+    export HF_HOME=/cache/huggingface
+    export TORCH_HOME=/cache/torch
+
+%post
+    apt-get update && apt-get install -y --no-install-recommends git \
+        && rm -rf /var/lib/apt/lists/*
+    pip install --no-cache-dir -r /opt/requirements.txt
+
+%runscript
+    exec python "$@"

@@ -1,0 +1,44 @@
+# Claude Code local settings
+.claude/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+dist/
+build/
+*.egg
+
+# Virtual environments
+venv/
+env/
+.venv/
+
+# Experiments / outputs
+runs/
+*.pt
+*.pth
+*.ckpt
+
+# Data (NIfTI files)
+*.nii
+*.nii.gz
+
+# Logs
+*.log
+wandb/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Generated eval/viz/figure output (see scripts/ for what produces each)
+outputs/
+
+# LocusBench benchmark data (patient CT images/masks) -- lives only on
+# the cluster's scratch storage, never in git, regardless of *.nii.gz above
+LocusBench/
+
+# Packaged copies of this repo
+*.zip

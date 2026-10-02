@@ -1,0 +1,93 @@
+# Candidate ablation studies for the Grounder architecture/loss/training choices.
+# Each entry is a set of config-key overrides, relative to a base config.
+# Driven end-to-end (train + evaluate every entry here) by run_ablations.py --
+# see that script for the quick-run budget (data fraction, epochs, warmup) it
+# layers on top of these per-ablation overrides.
+#
+# To run a single one by hand instead:
+#   python train.py --config configs/default.yaml \
+#     --override model.fusion_type=cross_attention \
+#       checkpoint.output_dir=runs/ablation_fusion_cross_attention
+
+ablations:
+  # --- Fusion architecture (models/unet3d.py fusion_type) ---
+  - name: fusion_cross_attention
+    hypothesis: >
+      Does gated_cross_attention (current default -- tanh-gated, skip joins after
+      attention) actually beat the original additive cross_attention fusion
+      (skip joins before attention, plain residual)?
+    overrides:
+      model.fusion_type: cross_attention
+
+  - name: fusion_encoder_cross_attention
+    hypothesis: >
+      Does fusing text at the encoder stages (before the bottleneck) instead of
+      at each decoder stage change localization quality?
+    overrides:
+      model.fusion_type: encoder_cross_attention
+
+  - name: fusion_voxtell
+    hypothesis: >
+      How does the VoxTell-style single pooled-query guidance mechanism compare
+      to per-stage cross-attention?
+    overrides:
+      model.fusion_type: voxtell
+
+  # --- Loss weighting (training/losses.py, training/trainer.py) ---
+  - name: loss_fixed_dice_bce
+    hypothesis: >
+      Does ramping dice_weight 0.5->0.7 over the LR warmup actually help vs. a
+      static 0.5/0.5 Dice/BCE split held for the whole run?
+    overrides:
+      loss.dice_weight_start: 0.5
+      loss.dice_weight_end: 0.5
+
+  - name: loss_aggressive_dice_ramp
+    hypothesis: >
+      Is 0.7 the right ramp endpoint, or does weighting Dice even more heavily
+      (0.9) improve final Dice further without destabilizing early training?
+    overrides:
+      loss.dice_weight_end: 0.9
+
+  - name: loss_higher_bce_pos_weight
+    hypothesis: >
+      Given small foreground targets relative to full CT volumes, does more
+      aggressive positive-class weighting (20 vs the current 10) improve recall
+      without hurting precision?
+    overrides:
+      loss.bce_pos_weight: 20.0
+
+  # --- Text encoder adaptation (models/text_encoder.py, models/cross_attention.py) ---
+  - name: text_encoder_finetune_last2
+    hypothesis: >
+      Does unfreezing the last 2 Qwen3-Embedding layers let the language model
+      specialize to radiology referring expressions, vs. staying fully frozen?
+      Requires disabling data.embedding_cache -- with a cache set, train.py
+      never loads the Qwen backbone at all, so finetune_last_n_layers would
+      silently be a no-op.
+    overrides:
+      model.finetune_last_n_layers: 2
+      model.freeze_text_encoder: false
+      data.embedding_cache: ""
+
+  - name: text_proj_trainable
+    hypothesis: >
+      Does training each stage's text_proj from scratch (instead of frozen/
+      warm-started) let the model learn a better task-specific text projection?
+    overrides:
+      model.freeze_language_projectors: false
+
+  # --- Model capacity / attention resolution (models/unet3d.py) ---
+  - name: unet_wider
+    hypothesis: >
+      Is the UNet capacity-limited? Doubling base_channels (16->32) tests
+      whether more channels improve Dice (at ~4x the compute/memory cost).
+    overrides:
+      model.unet_base_channels: 32
+
+  - name: attention_more_query_tokens
+    hypothesis: >
+      Does finer-grained cross-attention (less spatial pooling before attention,
+      target_q_tokens 2048->4096) help localize small/thin structures better?
+    overrides:
+      model.target_q_tokens: 4096

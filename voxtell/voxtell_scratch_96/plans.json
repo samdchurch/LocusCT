@@ -1,0 +1,36 @@
+{
+    "dataset_name": "VoxTellDataset",
+    "image_reader_writer": "NibabelIOWithReorient",
+    "_description": "Hand-authored (NOT nnU-Net-planner-generated) variant of voxtell_v1.1/plans.json for a 96^3 input patch with a deeper encoder. Only patch_size and architecture.arch_kwargs differ meaningfully from voxtell_v1.1's plans.json -- see finetune_voxtell.py's build_voxtell_model, which only ever reads configurations.3d_fullres.architecture (patch_size/batch_size below are documentation-only, never read by code -- see --patch-size). arch_kwargs is identical to voxtell_v1.1 EXCEPT: strides[1] flips from [2,2,2] to [1,1,1] (an extra non-downsampling stage absorbing the halved 96^3 input, so stages 1-5 reproduce VoxTellModel.DECODER_CONFIGS[1..5] exactly, same as voxtell_v1.1 does at ITS stages 1-5 for a 192^3 input -- verified against VoxTellModel's actual source, MIC-DKFZ/VoxTell) and n_blocks_per_stage is scaled up for depth. finetune_voxtell.py's decoder_layer=4/num_maskformer_stages=5 defaults are therefore UNCHANGED and still valid for this config. Do NOT edit n_stages or features_per_stage[0:5] without re-deriving this constraint.",
+    "configurations": {
+        "3d_fullres": {
+            "data_identifier": "nnUNetResEncUNetLPlans_noResampling_3d_fullres_96_deep",
+            "preprocessor_name": "DefaultPreprocessor",
+            "batch_size": 2,
+            "patch_size": [96, 96, 96],
+            "normalization_schemes": ["ZScoreNormalization"],
+            "architecture": {
+                "network_class_name": "dynamic_network_architectures.architectures.unet.ResidualEncoderUNet",
+                "arch_kwargs": {
+                    "n_stages": 6,
+                    "features_per_stage": [32, 64, 128, 256, 320, 320],
+                    "conv_op": "torch.nn.modules.conv.Conv3d",
+                    "kernel_sizes": [[3,3,3],[3,3,3],[3,3,3],[3,3,3],[3,3,3],[3,3,3]],
+                    "strides": [[1,1,1],[1,1,1],[2,2,2],[2,2,2],[2,2,2],[2,2,2]],
+                    "n_blocks_per_stage": [1, 2, 6, 8, 10, 10],
+                    "n_conv_per_stage_decoder": [1, 1, 1, 1, 1],
+                    "conv_bias": true,
+                    "norm_op": "torch.nn.modules.instancenorm.InstanceNorm3d",
+                    "norm_op_kwargs": {"eps": 1e-05, "affine": true},
+                    "dropout_op": null,
+                    "dropout_op_kwargs": null,
+                    "nonlin": "torch.nn.LeakyReLU",
+                    "nonlin_kwargs": {"inplace": true}
+                },
+                "_kw_requires_import": ["conv_op", "norm_op", "dropout_op", "nonlin"]
+            },
+            "batch_dice": false
+        }
+    },
+    "experiment_planner_used": "hand-authored, not nnUNetPlannerResEncL_noResampling -- see _description"
+}

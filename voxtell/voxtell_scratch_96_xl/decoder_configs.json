@@ -1,0 +1,8 @@
+{
+    "0": {"channels": 64,  "shape": [96, 96, 96]},
+    "1": {"channels": 128, "shape": [96, 96, 96]},
+    "2": {"channels": 256, "shape": [48, 48, 48]},
+    "3": {"channels": 512, "shape": [24, 24, 24]},
+    "4": {"channels": 512, "shape": [12, 12, 12]},
+    "5": {"channels": 512, "shape": [6, 6, 6]}
+}

@@ -1,0 +1,86 @@
+seed: 42  # fixes weight init and data shuffling order for reproducible, comparable runs
+
+# Fine-tunes on ReXGroundingCT alone (not mixed with the in-house abdominal corpus --
+# see configs/ablation_tests.yaml for that variant). Intended to be used with
+# train.py's --resume-partial pointed at an already-trained checkpoint (see
+# submit_rexgroundingct_finetune.sh), which warm-starts model weights but
+# restarts epoch/optimizer/scheduler bookkeeping -- so optimizer.lr/
+# scheduler.warmup_epochs/training.num_epochs below describe this fine-tuning
+# phase's own schedule, not a continuation of the source run's.
+
+data:
+  train_manifest: "official_splits/ReXGroundingCT_train.json"
+  val_manifest:   "official_splits/ReXGroundingCT_val.json"
+  test_manifest:  "official_splits/ReXGroundingCT_test.json"
+  # ReXGroundingCT manifest image/mask paths are relative to the dataset mirror
+  # root itself (e.g. "ReXGroundingCT/resampled/images/..."), not
+  # inhouse_abdominal_ct/nifti_resampled like default.yaml -- see
+  # build_rexgroundingct_manifests.py and configs/ablation_tests.yaml's
+  # per-entry image_dir/mask_dir override for the same root.
+  image_dir:      "/path/to/data"
+  mask_dir:       "/path/to/data"
+  embedding_cache: "/path/to/data/embeddings_mmap"  # path to memmap cache directory (on scratch -- raw hidden-state caches are large, home dir quota is too small); leave empty for live encoding
+  spatial_mode:   "fixed"          # "fixed" | "resize"
+  spatial_size:   [352, 352, 192]  # for resize mode; fixed mode pads depth to nearest mult of 16
+  max_text_len:   256
+  hu_min:         -1000.0
+  hu_max:         1000.0
+  multi_window:   false           # if true, use 3-channel windowing (lung/soft-tissue/bone) instead of single hu_min/hu_max
+  num_workers:    4
+  prefetch_factor: 4              # batches each worker reads ahead; higher hides more I/O latency behind compute at the cost of more host RAM
+  pin_memory:     true
+  max_samples:    null            # if set, truncate each split's dataset to this many samples (for quick test runs)
+
+model:
+  text_encoder_name: "Qwen/Qwen3-Embedding-8B"
+  text_proj_dim:     256           # output dim of each cross-attention stage's own text projection (input dim is the text encoder's raw hidden size, auto-detected)
+  freeze_language_projectors: true # freeze each stage's text_proj by default; set false to train it. Pairs with train.py's --init_text_proj, which warm-starts text_proj from a prior run
+  freeze_text_encoder: true
+  finetune_last_n_layers: 0        # >0 to unfreeze top-N transformer layers
+  unet_base_channels: 16
+  unet_channel_mult:  [1, 2, 4, 8, 16]
+  num_heads:          8
+  target_q_tokens:    2048
+  dropout:            0.1
+  fusion_type:        "cross_attention"  # "cross_attention" | "encoder_cross_attention" | "voxtell"
+  voxtell:
+    guidance_dim:            32   # G -- number of learned query slots / dot-product output channels per stage
+    prompt_decoder_dim:      256  # internal transformer hidden dim
+    prompt_decoder_layers:   6
+    prompt_decoder_heads:    8
+
+training:
+  batch_size:             1
+  num_epochs:             30      # ReXGroundingCT_train.json is ~7.7k samples, far smaller than the full corpus -- fewer epochs than default.yaml's 100
+  use_amp:                true
+  compile:                false  # requires gcc in container; re-enable after rebuilding .sif with gcc
+  gradient_checkpointing: false  # disabled for throughput; re-enable (true) if this OOMs at the current batch_size/GPU
+  grad_clip_norm:         1.0
+  checkpoint_every_n_steps: null  # if set, also save a rolling mid-epoch checkpoint every N steps (resumable without re-consuming already-seen samples); null disables
+
+optimizer:
+  name:          "adamw"
+  lr:            2.0e-5           # 10x lower than default.yaml's 2e-4 -- fine-tuning an already-trained checkpoint, not training from scratch
+  weight_decay:  1.0e-5
+  text_lr_scale: 0.01
+
+scheduler:
+  name:           "linear_warmup_cosine"
+  warmup_epochs:  2               # short warmup -- weights already trained, unlike default.yaml's 10-epoch warmup from random init
+
+loss:
+  dice_weight:    0.5
+  bce_weight:     0.5
+  bce_pos_weight: 10.0
+
+inference:
+  threshold: 0.5
+
+logging:
+  use_wandb:         false
+  project:           "grounder"
+  log_every_n_steps: 50
+
+checkpoint:
+  output_dir:          "runs/rexgroundingct_finetune"
+  keep_last_n:         3

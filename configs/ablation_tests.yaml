@@ -1,0 +1,78 @@
+seed: 42  # fixes weight init and data shuffling order for reproducible, comparable runs
+
+data:
+  train_manifest:
+    - "official_splits/all_data_train.json"
+    - manifest:  "official_splits/ReXGroundingCT_train.json"
+      image_dir: "/path/to/data"
+      mask_dir:  "/path/to/data"
+  val_manifest:   "official_splits/curated_ed_onc_val_data.json"
+  ed_val_manifest:  "official_splits/curated_ed_val_data.json"
+  onc_val_manifest: "official_splits/curated_onc_val_data.json"
+  test_manifest:  "official_splits/all_test_data.json"
+  image_dir:      "/path/to/data/inhouse_abdominal_ct/nifti_resampled"   # base dir prepended to manifest image paths
+  mask_dir:       "/path/to/data/inhouse_abdominal_ct/labels_resampled"  # base dir prepended to manifest mask paths
+  embedding_cache: "/path/to/data/embeddings_mmap"  # path to memmap cache directory (on scratch -- raw hidden-state caches are large, home dir quota is too small); leave empty for live encoding
+  spatial_mode:   "fixed"          # "fixed" | "resize"
+  spatial_size:   [352, 352, 192]  # for resize mode; fixed mode pads depth to nearest mult of 16
+  max_text_len:   256
+  hu_min:         -1000.0
+  hu_max:         1000.0
+  multi_window:   false           # if true, use 3-channel windowing (lung/soft-tissue/bone) instead of single hu_min/hu_max
+  num_workers:    4
+  prefetch_factor: 4              # batches each worker reads ahead; higher hides more I/O latency behind compute at the cost of more host RAM
+  pin_memory:     true
+  max_samples:    10000            # if set, truncate each split's dataset to this many samples (for quick test runs)
+
+model:
+  text_encoder_name: "Qwen/Qwen3-Embedding-8B"
+  text_proj_dim:     256           # output dim of each cross-attention stage's own text projection (input dim is the text encoder's raw hidden size, auto-detected)
+  freeze_text_encoder: true
+  finetune_last_n_layers: 0        # >0 to unfreeze top-N transformer layers
+  unet_base_channels: 16
+  unet_channel_mult:  [1, 2, 4, 8, 16]
+  num_heads:          8
+  target_q_tokens:    2048
+  dropout:            0.1
+  fusion_type:        "cross_attention"  # "cross_attention" | "encoder_cross_attention" | "voxtell"
+  voxtell:
+    guidance_dim:            32   # G -- number of learned query slots / dot-product output channels per stage
+    prompt_decoder_dim:      256  # internal transformer hidden dim
+    prompt_decoder_layers:   6
+    prompt_decoder_heads:    8
+
+training:
+  batch_size:             1
+  num_epochs:             20
+  use_amp:                true
+  compile:                false  # requires gcc in container; re-enable after rebuilding .sif with gcc
+  gradient_checkpointing: false  # disabled for throughput; re-enable (true) if this OOMs at the current batch_size/GPU
+  grad_clip_norm:         1.0
+  checkpoint_every_n_steps: null  # if set, also save a rolling mid-epoch checkpoint every N steps (resumable without re-consuming already-seen samples); null disables
+
+optimizer:
+  name:          "adamw"
+  lr:            1.0e-4
+  weight_decay:  1.0e-5
+  text_lr_scale: 0.01
+
+scheduler:
+  name:           "linear_warmup_cosine"
+  warmup_epochs:  4
+
+loss:
+  dice_weight:    0.5
+  bce_weight:     0.5
+  bce_pos_weight: 10.0
+
+inference:
+  threshold: 0.5
+
+logging:
+  use_wandb:         false
+  project:           "grounder"
+  log_every_n_steps: 50
+
+checkpoint:
+  output_dir:          "runs/default"
+  keep_last_n:         3
